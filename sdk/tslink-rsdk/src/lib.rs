@@ -5,6 +5,7 @@
 //! ## Features
 //!
 //! - **MQTT Channel**: Connect to IoT platform via MQTT protocol
+//! - **IPC Channel**: Zero-copy inter-process communication via iceoryx2
 //! - **Property Reporting**: Report device properties to cloud
 //! - **Event Reporting**: Report device events (info/warning/error)
 //! - **Service Handling**: Receive and handle cloud service calls
@@ -47,6 +48,8 @@ pub mod prelude {
     pub use crate::channel::{MessageChannel, MessageReceiveCallback};
     #[cfg(feature = "mqtt")]
     pub use crate::channel::{MqttChannel, MqttConfig};
+    #[cfg(feature = "ipc")]
+    pub use crate::channel::{IpcChannel, IpcConfig, IpcPayload};
     pub use crate::client::{
         DefaultTslinkClient, ServiceCallback, ServiceReplyCallback, TslinkClient, TslinkClientBuilder,
     };
