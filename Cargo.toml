@@ -1,0 +1,104 @@
+[package]
+name = "tslink"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "TSLink IoT Core - High-performance IoT device communication platform"
+authors = ["TSLink Team"]
+license = "MIT"
+
+[[bin]]
+name = "tslink"
+path = "src/main.rs"
+
+[lib]
+name = "tslink"
+path = "src/lib.rs"
+
+[dependencies]
+# Async Runtime
+tokio = { version = "1", features = ["full"] }
+
+# MQTT
+rumqttc = "0.24"
+
+# HTTP
+axum = { version = "0.7", features = ["macros", "ws"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Async utilities
+futures-util = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Redis
+fred = { version = "9", features = ["subscriber-client"] }
+
+# Kafka
+rdkafka = { version = "0.36", features = ["cmake-build"] }
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "mysql", "chrono", "uuid"] }
+
+# Logging & Metrics
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+prometheus = "0.13"
+
+# OpenTelemetry
+opentelemetry = { version = "0.21", features = ["trace"] }
+opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.14", features = ["tonic"] }
+tracing-opentelemetry = "0.22"
+
+# Configuration
+config = "0.14"
+
+# Error Handling
+thiserror = "1"
+anyhow = "1"
+
+# Concurrency
+dashmap = "5"
+async-trait = "0.1"
+
+# Utilities
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+moka = { version = "0.12", features = ["future"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[[test]]
+name = "routing_bench"
+path = "tests/bench/routing_bench.rs"
+
+[[test]]
+name = "message_bench"
+path = "tests/bench/message_bench.rs"
+
+[[test]]
+name = "integration_test"
+path = "tests/integration/integration_test.rs"
+
+[[test]]
+name = "real_world_test"
+path = "tests/real_world/real_world_test.rs"
+
+[[test]]
+name = "stress_test"
+path = "tests/bench/stress_test.rs"
+
+[[test]]
+name = "phase2_integration_test"
+path = "tests/integration/phase2_integration_test.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
