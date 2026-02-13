@@ -106,7 +106,7 @@ impl MessageRouter {
         if let Some(ref metrics) = self.metrics {
             metrics
                 .mqtt_messages_total
-                .with_label_values(&[&format!("{:?}", thing_type)])
+                .with_label_values(&[&format!("{:?}", thing_type), &topic.product_key])
                 .inc();
         }
 

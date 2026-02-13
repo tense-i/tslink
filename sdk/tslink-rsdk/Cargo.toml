@@ -1,0 +1,57 @@
+[package]
+name = "tslink-rsdk"
+version = "0.1.0"
+edition = "2021"
+description = "IoT SDK for Rust - Device-side SDK supporting multi-channel pub/sub (MQTT/IPC/HTTP)"
+license = "MIT"
+authors = ["Chingchi Team"]
+repository = "https://github.com/chingchi/tslink-rsdk"
+keywords = ["iot", "mqtt", "sdk", "embedded"]
+categories = ["network-programming", "embedded"]
+
+[lib]
+name = "tslink_rsdk"
+path = "src/lib.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.36", features = ["rt-multi-thread", "sync", "time", "macros"] }
+async-trait = "0.1"
+
+# MQTT client
+rumqttc = "0.24"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Utilities
+uuid = { version = "1.7", features = ["v4"] }
+thiserror = "1.0"
+tracing = "0.1"
+
+# Parking lot for fast locks
+parking_lot = "0.12"
+
+[dev-dependencies]
+tokio-test = "0.4"
+chrono = "0.4"
+
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[[example]]
+name = "mqtt_demo"
+path = "examples/mqtt_demo.rs"
+
+[features]
+default = ["mqtt"]
+mqtt = []
+ipc = []
+http = []
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
