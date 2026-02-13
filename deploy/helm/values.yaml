@@ -1,0 +1,49 @@
+# TSLink IoT Core Helm values
+replicaCount: 2
+
+image:
+  repository: registry.example.com/tslink
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  httpPort: 8080
+  metricsPort: 9090
+
+resources:
+  limits:
+    cpu: "1"
+    memory: 256Mi
+  requests:
+    cpu: 250m
+    memory: 128Mi
+
+env:
+  RUST_LOG: "info,tslink=debug"
+  RUN_ENV: "production"
+  TSLINK__MQTT__HOST: "emqx-service"
+  TSLINK__MQTT__PORT: "1883"
+  TSLINK__REDIS__URL: "redis://redis-service:6379"
+  TSLINK__KAFKA__BROKERS: "kafka-service:9092"
+  TSLINK__DATABASE__URL: "mysql://tslink:password@mysql-service:3306/iot_center"
+  TSLINK__HTTP__HOST: "0.0.0.0"
+  TSLINK__HTTP__PORT: "8080"
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 3
+  periodSeconds: 5
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
