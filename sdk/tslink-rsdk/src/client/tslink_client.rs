@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
 
-use crate::enums::EventType;
+use crate::enums::{CommunicationChannel, EventType};
 use crate::error::Result;
 use crate::message::ReplyMessage;
 
@@ -118,4 +118,45 @@ pub trait TslinkClient: Send + Sync {
 
     /// Release resources and disconnect
     async fn release(&self) -> Result<()>;
+
+    // ==================== Multi-Channel Methods ====================
+
+    /// Report device properties using specified channel
+    ///
+    /// # Arguments
+    /// * `data` - Property data as JSON value
+    /// * `channel` - Communication channel to use
+    async fn thing_property_post_with_channel(
+        &self,
+        data: Value,
+        channel: CommunicationChannel,
+    ) -> Result<()> {
+        // Default implementation uses default channel
+        let _ = channel;
+        self.thing_property_post(data).await
+    }
+
+    /// Report device event using specified channel
+    ///
+    /// # Arguments
+    /// * `event_type` - Type of event
+    /// * `event_name` - Name of the event
+    /// * `data` - Event data
+    /// * `channel` - Communication channel to use
+    async fn thing_event_post_with_channel(
+        &self,
+        event_type: EventType,
+        event_name: &str,
+        data: Value,
+        channel: CommunicationChannel,
+    ) -> Result<()> {
+        // Default implementation uses default channel
+        let _ = channel;
+        self.thing_event_post(event_type, event_name, data).await
+    }
+
+    /// Get the current communication channel configuration
+    fn get_channel(&self) -> CommunicationChannel {
+        CommunicationChannel::default()
+    }
 }

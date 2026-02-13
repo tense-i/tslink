@@ -52,3 +52,46 @@ impl From<QoS> for rumqttc::QoS {
         }
     }
 }
+
+/// Communication channel type for message routing
+/// 
+/// This enum determines which channel(s) to use for publishing or subscribing.
+/// Mirrors the `CommunicationChannel` enum from ja-IOT-SDK-cpp.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommunicationChannel {
+    /// All channels - publish/subscribe to both MQTT and IPC
+    #[default]
+    All,
+    /// Remote channel only - MQTT for cloud communication
+    Remote,
+    /// IPC channel only - local inter-process communication
+    Ipc,
+}
+
+impl CommunicationChannel {
+    /// Get the string representation of the channel
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CommunicationChannel::All => "all",
+            CommunicationChannel::Remote => "remote",
+            CommunicationChannel::Ipc => "ipc",
+        }
+    }
+
+    /// Check if this channel includes MQTT
+    pub fn includes_mqtt(&self) -> bool {
+        matches!(self, CommunicationChannel::All | CommunicationChannel::Remote)
+    }
+
+    /// Check if this channel includes IPC
+    pub fn includes_ipc(&self) -> bool {
+        matches!(self, CommunicationChannel::All | CommunicationChannel::Ipc)
+    }
+}
+
+impl std::fmt::Display for CommunicationChannel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}

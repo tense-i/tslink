@@ -45,7 +45,7 @@ pub use error::{Error, Result};
 
 /// Prelude module for convenient imports
 pub mod prelude {
-    pub use crate::channel::{MessageChannel, MessageReceiveCallback};
+    pub use crate::channel::{MessageChannel, MessageReceiveCallback, MultiChannel};
     #[cfg(feature = "mqtt")]
     pub use crate::channel::{MqttChannel, MqttConfig};
     #[cfg(feature = "ipc")]
@@ -53,7 +53,7 @@ pub mod prelude {
     pub use crate::client::{
         DefaultTslinkClient, ServiceCallback, ServiceReplyCallback, TslinkClient, TslinkClientBuilder,
     };
-    pub use crate::enums::{EventType, QoS};
+    pub use crate::enums::{CommunicationChannel, EventType, QoS};
     pub use crate::error::{Error, Result};
     pub use crate::message::{CommonMessage, ReplyMessage};
     pub use serde_json::json;

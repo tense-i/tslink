@@ -9,7 +9,7 @@ use tracing::debug;
 use super::{ServiceCallback, ServiceReplyCallback, TslinkClient};
 use crate::adapter::MessageAdapter;
 use crate::channel::{MessageChannel, MqttChannel, MqttConfig};
-use crate::enums::EventType;
+use crate::enums::{CommunicationChannel, EventType};
 use crate::error::Result;
 use crate::message::CommonMessage;
 
@@ -217,5 +217,10 @@ impl TslinkClient for DefaultTslinkClient {
     async fn release(&self) -> Result<()> {
         self.adapter.release();
         self.channel.stop().await
+    }
+
+    fn get_channel(&self) -> CommunicationChannel {
+        // DefaultTslinkClient uses MQTT (Remote) channel by default
+        CommunicationChannel::Remote
     }
 }
