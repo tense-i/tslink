@@ -1,25 +1,30 @@
-# SPEC-003: tslink-rsdk IPC Channel
+# SPEC-003: tslink-rsdk IPC Channel & Multi-Channel Support
 
 ## Meta
 
 | Field | Value |
 |-------|-------|
 | Spec ID | SPEC-003 |
-| Title | tslink-rsdk IPC Channel (iceoryx2) |
-| Status | Draft |
-| Created | 2026-02-14 |
+| Title | tslink-rsdk IPC Channel & Multi-Channel Support |
+| Status | In Progress |
+| Created | 2025-02-14 |
+| Updated | 2025-02-14 |
 | Author | AI Assistant |
 
 ## Problem Statement
 
 设备端 SDK 需要支持同机进程间通信（IPC），用于边缘计算场景下多个进程间的高效数据交换。参考 ja-IOT-SDK-cpp 的 eCAL 实现，使用 Rust 原生的 iceoryx2 实现零拷贝、低延迟的 IPC 通道。
 
+**关键需求**: 参照 ja-IOT-SDK-cpp 接口，发布和订阅时可以选择具体通道（IPC、MQTT、ALL），ALL 表示同时发布到两个通道。当本地没有网络时，只影响 MQTT 通道而不影响 IPC。
+
 ## Goals
 
 1. **零拷贝 IPC**: 使用 iceoryx2 实现真正的零拷贝进程间通信
-2. **统一接口**: 实现 `MessageChannel` trait，与 MQTT 通道保持接口一致
-3. **设备发现**: 支持同机设备自动发现和状态监控
-4. **高性能**: 适用于大数据量传输（图像/点云/音视频帧）
+2. **多通道支持**: 支持 IPC、MQTT、ALL 通道选择
+3. **通道隔离**: 网络故障只影响 MQTT，不影响 IPC
+4. **统一接口**: 实现 `MessageChannel` trait，与 MQTT 通道保持接口一致
+5. **设备发现**: 支持同机设备自动发现和状态监控
+6. **高性能**: 适用于大数据量传输（图像/点云/音视频帧）
 
 ## Non-Goals
 
@@ -99,18 +104,64 @@
 
 ## Key Entities
 
+### CommunicationChannel (通道枚举)
+
+参考 ja-IOT-SDK-cpp 的 `CommunicationChannel` 枚举。
+
+```rust
+/// 数据通信通道
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CommunicationChannel {
+    /// 全通道 - 同时发送到 MQTT 和 IPC
+    #[default]
+    All,
+    /// 远程通道 - 仅 MQTT
+    Remote,
+    /// IPC 通道 - 仅本地进程间通信
+    Ipc,
+}
+```
+
+### MultiChannel (多通道管理器)
+
+统一管理 MQTT 和 IPC 通道，根据指定通道类型路由消息。
+
+```rust
+pub struct MultiChannel {
+    mqtt_channel: Option<Arc<MqttChannel>>,
+    ipc_channel: Option<Arc<IpcChannel>>,
+    default_channel: CommunicationChannel,
+}
+
+impl MultiChannel {
+    /// 使用指定通道发送消息
+    pub async fn send_with_channel(
+        &self, 
+        topic: &str, 
+        message: &str, 
+        channel: CommunicationChannel
+    ) -> Result<()>;
+    
+    /// 使用指定通道订阅
+    pub async fn subscribe_with_channel(
+        &self, 
+        topic: &str, 
+        channel: CommunicationChannel
+    ) -> Result<()>;
+}
+```
+
 ### IpcChannel
 
 IPC 通道实现，基于 iceoryx2 的 pub/sub 模式。
 
 ```rust
 pub struct IpcChannel {
-    node: Node<ipc::Service>,
-    product_key: String,
-    device_id: String,
-    publishers: HashMap<String, Publisher>,
-    subscribers: HashMap<String, Subscriber>,
-    discovery_handle: Option<JoinHandle<()>>,
+    config: IpcConfig,
+    callback: Arc<RwLock<Option<Arc<dyn MessageReceiveCallback>>>>,
+    is_running: Arc<AtomicBool>,
+    subscribers: Arc<RwLock<HashMap<String, SubscriberEntry>>>,
+    node_name: String,
 }
 ```
 
@@ -124,6 +175,7 @@ pub struct IpcConfig {
     pub device_id: String,
     pub discovery_interval_secs: u64,
     pub device_cache_expire_secs: u64,
+    pub service_prefix: String,
 }
 ```
 
@@ -131,19 +183,45 @@ pub struct IpcConfig {
 
 ## API Design
 
+### TslinkClient 扩展 (多通道支持)
+
+```rust
+#[async_trait]
+pub trait TslinkClient: Send + Sync {
+    /// 使用指定通道上报属性
+    async fn thing_property_post_with_channel(
+        &self,
+        properties: Value,
+        channel: CommunicationChannel,
+    ) -> Result<()>;
+
+    /// 使用指定通道上报事件
+    async fn thing_event_post_with_channel(
+        &self,
+        identifier: &str,
+        event_type: EventType,
+        data: Value,
+        channel: CommunicationChannel,
+    ) -> Result<()>;
+
+    // ... 其他方法类似
+}
+```
+
 ### IpcChannel Methods
 
 ```rust
 impl IpcChannel {
     pub fn new(config: IpcConfig) -> Result<Self>;
-    pub async fn start(&self) -> Result<()>;
-    pub async fn stop(&self) -> Result<()>;
+    pub fn set_callback(&self, callback: Arc<dyn MessageReceiveCallback>);
 }
 
 impl MessageChannel for IpcChannel {
     async fn send(&self, topic: &str, message: &str) -> Result<()>;
-    async fn subscribe(&self, topic: &str) -> Result<()>;
-    fn set_callback(&self, callback: Arc<dyn MessageReceiveCallback>);
+    async fn add_topic(&self, topic: &str) -> Result<()>;
+    async fn start(&self) -> Result<()>;
+    async fn stop(&self) -> Result<()>;
+    fn is_connected(&self) -> bool;
 }
 ```
 
