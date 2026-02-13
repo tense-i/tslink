@@ -1,0 +1,28 @@
+# TSLink IoT Core - Development Configuration
+# Overrides default.toml for local development
+
+[app]
+env = "development"
+
+[mqtt]
+host = "127.0.0.1"
+port = 1883
+client_id = "tslink-dev-01"
+username = "admin"
+password = "public"
+
+[redis]
+url = "redis://127.0.0.1:6379"
+pool_size = 4
+
+[kafka]
+brokers = "127.0.0.1:9092"
+
+[database]
+url = "mysql://root:root@127.0.0.1:3306/tslink_dev"
+max_connections = 5
+min_connections = 1
+
+[http]
+host = "127.0.0.1"
+port = 8080

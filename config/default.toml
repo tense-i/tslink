@@ -1,0 +1,44 @@
+# TSLink IoT Core - Default Configuration
+
+[app]
+name = "tslink"
+env = "production"
+
+[mqtt]
+host = "127.0.0.1"
+port = 1883
+client_id = "tslink-server-01"
+username = ""
+password = ""
+keep_alive_secs = 30
+clean_session = true
+max_packet_size = 65536
+inflight = 100
+# 订阅的 topic 模式列表
+subscribe_topics = [
+    "sys/+/+/#",
+    "region/+/sys/+/+/#",
+]
+
+[redis]
+url = "redis://127.0.0.1:6379"
+pool_size = 8
+key_prefix = "tslink:"
+
+[kafka]
+brokers = "127.0.0.1:9092"
+topic_prefix = "tslink."
+# 事件转发 topic
+event_topic = "tslink.device.event"
+property_topic = "tslink.device.property"
+
+[database]
+url = "mysql://root:password@127.0.0.1:3306/tslink"
+max_connections = 10
+min_connections = 2
+connect_timeout_secs = 10
+
+[http]
+host = "0.0.0.0"
+port = 8080
+request_timeout_secs = 30
