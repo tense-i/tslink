@@ -173,13 +173,14 @@ async fn run_cloud_simulator() -> Result<()> {
     info!("=== 云端模拟器启动 (HTTP API 模式) ===");
 
     let api_url = std::env::var("TSLINK_API_URL")
-        .unwrap_or_else(|_| "http://localhost:3000".to_string());
+        .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
     info!("tslink API URL: {}", api_url);
 
-    // 创建 HTTP 客户端
+    // 创建 HTTP 客户端 (禁用代理，避免 localhost 请求走系统代理)
     let client = HttpClient::builder()
         .timeout(Duration::from_secs(30))
+        .no_proxy()  // 禁用代理
         .build()
         .expect("Failed to create HTTP client");
 
