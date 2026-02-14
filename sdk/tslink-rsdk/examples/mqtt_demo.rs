@@ -75,6 +75,7 @@ async fn main() -> Result<()> {
     info!("\n=== Test 4: Cloud Service Invocation ===");
     test_cloud_service(&client).await?;
 
+
     // Keep running to receive messages
     info!("\n=== Waiting for incoming messages (10 seconds) ===");
     sleep(Duration::from_secs(10)).await;
@@ -223,3 +224,20 @@ async fn test_cloud_service(client: &Arc<DefaultTslinkClient>) -> Result<()> {
 
     Ok(())
 }
+
+fn test_service_registry(client: &Arc<DefaultTslinkClient>) -> Result<()> {
+    let get_device_info: ServiceCallback = Arc::new(|_params| {
+        json!({"status": "success", "device": "test_device_001"})
+    });
+    
+    let take_photo: ServiceCallback = Arc::new(|_params| {
+        json!({"status": "success", "photo_id": "img_001"})
+    });
+    
+    client.set_service_handle("getDeviceInfo", get_device_info);
+    client.set_service_handle("takephoto", take_photo);
+    Ok(())
+}
+
+// Note: thing_service_invoke is not implemented yet
+// Use platform_service_invoke for cloud service invocation

@@ -17,16 +17,24 @@ use uuid::Uuid;
 pub struct CommonMessage {
     /// Transaction ID for correlation
     pub tid: String,
-    /// Batch ID
+    /// Batch ID (optional for incoming messages)
+    #[serde(default)]
     pub bid: String,
     /// Protocol version
+    #[serde(default = "default_version")]
     pub version: String,
     /// Timestamp in milliseconds
+    #[serde(default)]
     pub timestamp: i64,
     /// Method name
     pub method: String,
-    /// Data payload
+    /// Data payload (can be "data" or "params")
+    #[serde(alias = "params", default)]
     pub data: Value,
+}
+
+fn default_version() -> String {
+    "1.0".to_string()
 }
 
 impl CommonMessage {

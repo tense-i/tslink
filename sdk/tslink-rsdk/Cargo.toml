@@ -46,6 +46,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 name = "mqtt_demo"
 path = "examples/mqtt_demo.rs"
 
+[[example]]
+name = "service_invoke_test"
+path = "examples/service_invoke_test.rs"
+
 [features]
 default = ["mqtt"]
 mqtt = []
