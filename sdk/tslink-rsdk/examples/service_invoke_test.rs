@@ -1,22 +1,25 @@
-//! Service Invoke Test - 模拟云端调用设备服务
+//! Service Invoke Test - 通过 tslink HTTP API 调用设备服务
 //!
 //! 本测试分为两部分：
 //! 1. 设备端：注册服务回调，等待云端调用
-//! 2. 模拟云端：发送服务调用消息
+//! 2. 模拟云端：通过 tslink HTTP API 发送服务调用
 //!
 //! 运行方式：
-//!   终端1 (设备端): cargo run --example service_invoke_test -- device
-//!   终端2 (云端):   cargo run --example service_invoke_test -- cloud
+//!   1. 启动 tslink 平台 (MQTT + HTTP Server)
+//!   2. 终端1 (设备端): cargo run --example service_invoke_test -- device
+//!   3. 终端2 (云端):   cargo run --example service_invoke_test -- cloud
 //!
-//! 需要先启动 MQTT Broker (如 mosquitto)
+//! 环境变量：
+//!   MQTT_ENDPOINT: MQTT broker URL (默认: mqtt://localhost:1883)
+//!   TSLINK_API_URL: tslink HTTP API URL (默认: http://localhost:3000)
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use rumqttc::{AsyncClient, MqttOptions, QoS};
+use reqwest::Client as HttpClient;
 use serde_json::{json, Value};
 use tokio::time::sleep;
-use tracing::{info, Level};
+use tracing::{info, error, Level};
 use tracing_subscriber::FmtSubscriber;
 
 use tslink_rsdk::prelude::*;
@@ -165,83 +168,73 @@ fn register_services(client: &Arc<DefaultTslinkClient>) {
     info!("✓ 已注册服务: setConfig");
 }
 
-/// 模拟云端 - 发送服务调用消息
+/// 模拟云端 - 通过 tslink HTTP API 发送服务调用
 async fn run_cloud_simulator() -> Result<()> {
-    info!("=== 云端模拟器启动 ===");
+    info!("=== 云端模拟器启动 (HTTP API 模式) ===");
 
-    let broker_host = std::env::var("MQTT_HOST").unwrap_or_else(|_| "localhost".to_string());
-    let broker_port: u16 = std::env::var("MQTT_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(1883);
+    let api_url = std::env::var("TSLINK_API_URL")
+        .unwrap_or_else(|_| "http://localhost:3000".to_string());
 
-    info!("连接 MQTT Broker: {}:{}", broker_host, broker_port);
+    info!("tslink API URL: {}", api_url);
 
-    // 创建 MQTT 客户端
-    let mut mqtt_options = MqttOptions::new("cloud_simulator", &broker_host, broker_port);
-    mqtt_options.set_keep_alive(Duration::from_secs(30));
+    // 创建 HTTP 客户端
+    let client = HttpClient::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .expect("Failed to create HTTP client");
 
-    let (client, mut eventloop) = AsyncClient::new(mqtt_options, 10);
-
-    // 启动事件循环
-    tokio::spawn(async move {
-        loop {
-            match eventloop.poll().await {
-                Ok(_) => {}
-                Err(e) => {
-                    tracing::error!("MQTT error: {:?}", e);
-                    break;
-                }
-            }
-        }
-    });
-
-    // 等待连接
-    sleep(Duration::from_secs(1)).await;
-    info!("✓ 云端模拟器已连接");
+    info!("✓ HTTP 客户端已创建");
 
     // 发送服务调用测试
     info!("\n=== 开始服务调用测试 ===\n");
 
-    // 测试1: 调用 getDeviceInfo
-    invoke_service(
+    // 测试1: 调用 getDeviceInfo (异步)
+    invoke_service_via_http(
         &client,
+        &api_url,
         "getDeviceInfo",
         json!({}),
+        false,
     ).await;
     sleep(Duration::from_secs(1)).await;
 
-    // 测试2: 调用 takePhoto
-    invoke_service(
+    // 测试2: 调用 takePhoto (异步)
+    invoke_service_via_http(
         &client,
+        &api_url,
         "takePhoto",
         json!({
             "resolution": "4K",
             "format": "jpeg"
         }),
+        false,
     ).await;
     sleep(Duration::from_secs(1)).await;
 
-    // 测试3: 调用 reboot
-    invoke_service(
+    // 测试3: 调用 reboot (异步)
+    invoke_service_via_http(
         &client,
+        &api_url,
         "reboot",
         json!({
             "delay": 10,
             "reason": "firmware update"
         }),
+        false,
     ).await;
     sleep(Duration::from_secs(1)).await;
 
-    // 测试4: 调用 setConfig
-    invoke_service(
+    // 测试4: 调用 setConfig (同步 - 等待设备响应)
+    invoke_service_via_http(
         &client,
+        &api_url,
         "setConfig",
         json!({
             "logLevel": "debug",
             "reportInterval": 30,
             "enableFeatureX": true
         }),
+        true, // sync = true, 等待设备响应
     ).await;
 
     info!("\n=== 服务调用测试完成 ===");
@@ -250,31 +243,58 @@ async fn run_cloud_simulator() -> Result<()> {
     Ok(())
 }
 
-/// 发送服务调用消息
-async fn invoke_service(client: &AsyncClient, service_name: &str, params: Value) {
-    // 构造服务调用 topic
-    // 格式: sys/{productKey}/{deviceId}/thing/service/{serviceName}/post
-    let topic = format!(
-        "sys/{}/{}/thing/service/{}/post",
-        PRODUCT_KEY, DEVICE_ID, service_name
+/// 通过 tslink HTTP API 调用设备服务
+///
+/// API: POST /api/v1/devices/{pk}/{did}/services/{method}
+/// Body: { "data": {...}, "sync": bool }
+async fn invoke_service_via_http(
+    client: &HttpClient,
+    api_url: &str,
+    service_name: &str,
+    data: Value,
+    sync: bool,
+) {
+    // 构造 API URL
+    // 格式: POST /api/v1/devices/{pk}/{did}/services/{method}
+    let url = format!(
+        "{}/api/v1/devices/{}/{}/services/{}",
+        api_url, PRODUCT_KEY, DEVICE_ID, service_name
     );
 
-    // 构造消息体
-    let message = json!({
-        "tid": format!("tid_{}", chrono::Utc::now().timestamp_millis()),
-        "timestamp": chrono::Utc::now().timestamp_millis(),
-        "method": format!("service.{}.post", service_name),
-        "params": params
+    // 构造请求体
+    let request_body = json!({
+        "data": data,
+        "sync": sync
     });
 
-    let payload = serde_json::to_string(&message).unwrap();
+    info!(">>> 调用服务: {} (sync={})", service_name, sync);
+    info!("    URL: POST {}", url);
+    info!("    Body: {}", serde_json::to_string_pretty(&request_body).unwrap_or_default());
 
-    info!(">>> 调用服务: {}", service_name);
-    info!("    Topic: {}", topic);
-    info!("    Payload: {}", payload);
-
-    match client.publish(&topic, QoS::AtLeastOnce, false, payload).await {
-        Ok(_) => info!("✓ 消息已发送"),
-        Err(e) => tracing::error!("✗ 发送失败: {:?}", e),
+    match client
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .json(&request_body)
+        .send()
+        .await
+    {
+        Ok(response) => {
+            let status = response.status();
+            match response.json::<Value>().await {
+                Ok(body) => {
+                    if status.is_success() {
+                        info!("✓ 响应 [{}]: {}", status, serde_json::to_string_pretty(&body).unwrap_or_default());
+                    } else {
+                        error!("✗ 失败 [{}]: {}", status, serde_json::to_string_pretty(&body).unwrap_or_default());
+                    }
+                }
+                Err(e) => {
+                    error!("✗ 解析响应失败: {:?}", e);
+                }
+            }
+        }
+        Err(e) => {
+            error!("✗ 请求失败: {:?}", e);
+        }
     }
 }

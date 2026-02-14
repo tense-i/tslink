@@ -39,7 +39,7 @@ iceoryx2 = { version = "0.5", optional = true }
 [dev-dependencies]
 tokio-test = "0.4"
 chrono = "0.4"
-
+reqwest = { version = "0.12", features = ["json"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [[example]]
