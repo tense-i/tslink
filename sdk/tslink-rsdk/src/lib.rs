@@ -37,6 +37,7 @@
 pub mod adapter;
 pub mod channel;
 pub mod client;
+pub mod discovery;
 pub mod enums;
 pub mod error;
 pub mod message;
@@ -53,6 +54,7 @@ pub mod prelude {
     pub use crate::client::{
         DefaultTslinkClient, ServiceCallback, ServiceReplyCallback, TslinkClient, TslinkClientBuilder,
     };
+    pub use crate::discovery::{DeviceDiscovery, DeviceDiscoveryConfig, DeviceInfo};
     pub use crate::enums::{CommunicationChannel, EventType, QoS};
     pub use crate::error::{Error, Result};
     pub use crate::message::{CommonMessage, ReplyMessage};
