@@ -17,8 +17,8 @@ use uuid::Uuid;
 pub struct CommonMessage {
     /// Transaction ID for correlation
     pub tid: String,
-    /// Batch ID (optional for incoming messages)
-    #[serde(default)]
+    /// Batch ID (optional, can be null)
+    #[serde(default, deserialize_with = "deserialize_optional_string")]
     pub bid: String,
     /// Protocol version
     #[serde(default = "default_version")]
@@ -31,6 +31,15 @@ pub struct CommonMessage {
     /// Data payload (can be "data" or "params")
     #[serde(alias = "params", default)]
     pub data: Value,
+}
+
+/// Deserialize a string that may be null
+fn deserialize_optional_string<'de, D>(deserializer: D) -> std::result::Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt: Option<String> = Option::deserialize(deserializer)?;
+    Ok(opt.unwrap_or_default())
 }
 
 fn default_version() -> String {
