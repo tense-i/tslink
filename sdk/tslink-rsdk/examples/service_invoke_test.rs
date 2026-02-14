@@ -280,21 +280,37 @@ async fn invoke_service_via_http(
     {
         Ok(response) => {
             let status = response.status();
-            match response.json::<Value>().await {
-                Ok(body) => {
-                    if status.is_success() {
-                        info!("✓ 响应 [{}]: {}", status, serde_json::to_string_pretty(&body).unwrap_or_default());
-                    } else {
-                        error!("✗ 失败 [{}]: {}", status, serde_json::to_string_pretty(&body).unwrap_or_default());
+            // 先获取文本，再尝试解析 JSON
+            match response.text().await {
+                Ok(text) => {
+                    if text.is_empty() {
+                        error!("✗ 响应为空 [{}] - 请确认 tslink 平台已启动", status);
+                        return;
+                    }
+                    match serde_json::from_str::<Value>(&text) {
+                        Ok(body) => {
+                            if status.is_success() {
+                                info!("✓ 响应 [{}]: {}", status, serde_json::to_string_pretty(&body).unwrap_or_default());
+                            } else {
+                                error!("✗ 失败 [{}]: {}", status, serde_json::to_string_pretty(&body).unwrap_or_default());
+                            }
+                        }
+                        Err(_) => {
+                            error!("✗ 响应非 JSON [{}]: {}", status, text);
+                        }
                     }
                 }
                 Err(e) => {
-                    error!("✗ 解析响应失败: {:?}", e);
+                    error!("✗ 读取响应失败: {:?}", e);
                 }
             }
         }
         Err(e) => {
-            error!("✗ 请求失败: {:?}", e);
+            if e.is_connect() {
+                error!("✗ 连接失败 - 请确认 tslink 平台已启动: {:?}", e);
+            } else {
+                error!("✗ 请求失败: {:?}", e);
+            }
         }
     }
 }
