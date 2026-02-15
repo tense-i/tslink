@@ -1,0 +1,24 @@
+# Rust build artifacts
+target/
+**/target/
+
+# Cargo lock for libraries (optional, uncomment if needed)
+# Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# iceoryx2 runtime files
+/tmp/iceoryx2/
+
+# Environment
+.env
+.env.local
