@@ -6,4 +6,4 @@ mod tslink_client;
 
 pub use builder::TslinkClientBuilder;
 pub use default_client::DefaultTslinkClient;
-pub use tslink_client::{ServiceCallback, ServiceReplyCallback, TslinkClient};
+pub use tslink_client::TslinkClient;

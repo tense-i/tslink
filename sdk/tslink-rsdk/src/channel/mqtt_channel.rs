@@ -31,6 +31,10 @@ pub struct MqttConfig {
     pub connection_timeout_secs: u64,
     /// Max inflight messages
     pub max_inflight: u16,
+    /// QoS level for publishing messages
+    pub publish_qos: crate::enums::QoS,
+    /// QoS level for subscribing to topics
+    pub subscribe_qos: crate::enums::QoS,
 }
 
 impl Default for MqttConfig {
@@ -44,6 +48,8 @@ impl Default for MqttConfig {
             keep_alive_secs: 20,
             connection_timeout_secs: 10,
             max_inflight: 1000,
+            publish_qos: crate::enums::QoS::AtMostOnce,
+            subscribe_qos: crate::enums::QoS::AtMostOnce,
         }
     }
 }
@@ -134,8 +140,9 @@ impl MqttChannel {
         let topics = self.topics.read().await.clone();
         for topic in topics {
             debug!("Subscribing to topic: {}", topic);
+            let sub_qos: QoS = self.config.subscribe_qos.into();
             client
-                .subscribe(&topic, QoS::AtMostOnce)
+                .subscribe(&topic, sub_qos)
                 .await
                 .map_err(|e| Error::MqttSubscribe(e.to_string()))?;
         }
@@ -195,8 +202,9 @@ impl MessageChannel for MqttChannel {
 
         debug!("Publishing to topic: {}, data: {}", topic, data);
 
+        let pub_qos: QoS = self.config.publish_qos.into();
         client
-            .publish(topic, QoS::AtMostOnce, false, data.as_bytes())
+            .publish(topic, pub_qos, false, data.as_bytes())
             .await
             .map_err(|e| Error::MqttPublish(e.to_string()))?;
 
@@ -254,8 +262,9 @@ impl MessageChannel for MqttChannel {
         // If already connected, subscribe immediately
         let client_guard = self.client.read().await;
         if let Some(client) = client_guard.as_ref() {
+            let sub_qos: QoS = self.config.subscribe_qos.into();
             client
-                .subscribe(topic, QoS::AtMostOnce)
+                .subscribe(topic, sub_qos)
                 .await
                 .map_err(|e| Error::MqttSubscribe(e.to_string()))?;
         }

@@ -41,6 +41,7 @@ tokio-test = "0.4"
 chrono = "0.4"
 reqwest = { version = "0.12", features = ["json"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
 
 [[example]]
 name = "mqtt_demo"
@@ -49,6 +50,23 @@ path = "examples/mqtt_demo.rs"
 [[example]]
 name = "service_invoke_test"
 path = "examples/service_invoke_test.rs"
+
+[[example]]
+name = "bench_mqtt_throughput"
+path = "examples/bench_mqtt_throughput.rs"
+
+[[example]]
+name = "bench_qos_reliability"
+path = "examples/bench_qos_reliability.rs"
+
+[[example]]
+name = "bench_ipc_frame"
+path = "examples/bench_ipc_frame.rs"
+required-features = ["ipc"]
+
+[[example]]
+name = "bench_api_validation"
+path = "examples/bench_api_validation.rs"
 
 [features]
 default = ["mqtt"]

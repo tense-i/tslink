@@ -4,18 +4,31 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+use serde_json::Value;
 use tracing::{debug, warn};
 
 use crate::channel::MessageReceiveCallback;
-use crate::client::{ServiceCallback, ServiceReplyCallback};
+use crate::message::service::{
+    DeviceServiceRequest, DeviceServiceResponse, PlatformServiceResponse, ReplyCallback,
+    ServiceExecutor,
+};
 use crate::message::{CommonMessage, ReplyMessage};
+
+/// Reply handler: either a platform response callback or a device response callback
+#[derive(Clone)]
+pub enum ReplyHandler {
+    Platform(Arc<dyn Fn(PlatformServiceResponse) + Send + Sync>),
+    Device(Arc<dyn Fn(DeviceServiceResponse) + Send + Sync>),
+}
 
 /// Message adapter that routes incoming messages to registered callbacks
 pub struct MessageAdapter {
-    /// Service callbacks keyed by method name
-    service_callbacks: RwLock<HashMap<String, ServiceCallback>>,
-    /// Reply callbacks keyed by transaction ID
-    reply_callbacks: RwLock<HashMap<String, ServiceReplyCallback>>,
+    /// Service executors keyed by method name (e.g. "service.{id}.post")
+    service_executors: RwLock<HashMap<String, ServiceExecutor>>,
+    /// Unified service executor (fallback when no specific executor matches)
+    unified_executor: RwLock<Option<ServiceExecutor>>,
+    /// Reply handlers keyed by transaction ID
+    reply_handlers: RwLock<HashMap<String, ReplyHandler>>,
     /// Channel for sending replies (to be set by client)
     reply_sender: RwLock<Option<Arc<dyn Fn(&str, &str) + Send + Sync>>>,
 }
@@ -23,8 +36,8 @@ pub struct MessageAdapter {
 impl std::fmt::Debug for MessageAdapter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MessageAdapter")
-            .field("service_callbacks_count", &self.service_callbacks.read().len())
-            .field("reply_callbacks_count", &self.reply_callbacks.read().len())
+            .field("service_executors_count", &self.service_executors.read().len())
+            .field("reply_handlers_count", &self.reply_handlers.read().len())
             .finish_non_exhaustive()
     }
 }
@@ -33,8 +46,9 @@ impl MessageAdapter {
     /// Create a new message adapter
     pub fn new() -> Self {
         Self {
-            service_callbacks: RwLock::new(HashMap::new()),
-            reply_callbacks: RwLock::new(HashMap::new()),
+            service_executors: RwLock::new(HashMap::new()),
+            unified_executor: RwLock::new(None),
+            reply_handlers: RwLock::new(HashMap::new()),
             reply_sender: RwLock::new(None),
         }
     }
@@ -44,25 +58,31 @@ impl MessageAdapter {
         *self.reply_sender.write() = Some(sender);
     }
 
-    /// Register a service callback
-    pub fn add_service_callback(&self, method: &str, callback: ServiceCallback) {
-        debug!("Registering service callback for: {}", method);
-        self.service_callbacks
+    /// Register a service executor for a specific method
+    pub fn add_service_executor(&self, method: &str, executor: ServiceExecutor) {
+        debug!("Registering service executor for: {}", method);
+        self.service_executors
             .write()
-            .insert(method.to_string(), callback);
+            .insert(method.to_string(), executor);
     }
 
-    /// Register a reply callback for a transaction
-    pub fn add_reply_callback(&self, tid: &str, callback: ServiceReplyCallback) {
-        debug!("Registering reply callback for tid: {}", tid);
-        self.reply_callbacks
-            .write()
-            .insert(tid.to_string(), callback);
+    /// Register a unified (fallback) service executor
+    pub fn set_unified_executor(&self, executor: ServiceExecutor) {
+        debug!("Registering unified service executor");
+        *self.unified_executor.write() = Some(executor);
     }
 
-    /// Remove a reply callback
-    pub fn remove_reply_callback(&self, tid: &str) -> Option<ServiceReplyCallback> {
-        self.reply_callbacks.write().remove(tid)
+    /// Register a reply handler for a transaction
+    pub fn add_reply_handler(&self, tid: &str, handler: ReplyHandler) {
+        debug!("Registering reply handler for tid: {}", tid);
+        self.reply_handlers
+            .write()
+            .insert(tid.to_string(), handler);
+    }
+
+    /// Remove a reply handler
+    pub fn remove_reply_handler(&self, tid: &str) -> Option<ReplyHandler> {
+        self.reply_handlers.write().remove(tid)
     }
 
     /// Handle incoming message and route to appropriate callback
@@ -76,7 +96,7 @@ impl MessageAdapter {
                 // Try to parse as ReplyMessage
                 match serde_json::from_str::<ReplyMessage>(data) {
                     Ok(reply) => {
-                        self.handle_reply_message(&reply);
+                        self.handle_reply_message(topic, &reply);
                     }
                     Err(e) => {
                         warn!("Failed to parse message: {}", e);
@@ -86,7 +106,7 @@ impl MessageAdapter {
         }
     }
 
-    /// Handle a CommonMessage (service invocation)
+    /// Handle a CommonMessage (service invocation) using ServiceExecutor
     fn handle_common_message(&self, topic: &str, msg: &CommonMessage) {
         debug!("Handling message: method={}, tid={}", msg.method, msg.tid);
 
@@ -97,41 +117,117 @@ impl MessageAdapter {
             self.extract_method_from_topic(topic)
         };
 
-        // Find and invoke callback
-        let callback = {
-            let callbacks = self.service_callbacks.read();
-            callbacks.get(&method).cloned()
+        // Extract service identifier from method (e.g. "service.xxx.post" -> "xxx")
+        let service_identifier = self.extract_service_identifier(&method);
+
+        // Build DeviceServiceRequest from CommonMessage
+        let param_data = self.value_to_bytes(&msg.data);
+        let request = DeviceServiceRequest {
+            channel: crate::enums::CommunicationChannel::default(),
+            service_identifier: service_identifier.clone(),
+            param_data,
+            service_timestamp_ms: msg.timestamp as i64,
         };
 
-        if let Some(callback) = callback {
-            let result = callback(msg.data.clone());
+        // Find specific executor: try exact method, then "service.{method}.post" format
+        let executor = {
+            let executors = self.service_executors.read();
+            executors.get(&method).cloned().or_else(|| {
+                let alt_key = format!("service.{}.post", method);
+                executors.get(&alt_key).cloned()
+            }).or_else(|| {
+                // Also try matching by service_identifier directly
+                let alt_key2 = format!("service.{}.post", service_identifier);
+                executors.get(&alt_key2).cloned()
+            })
+        };
+        let executor = executor.or_else(|| self.unified_executor.read().clone());
 
-            // Send reply if we have a reply sender
-            if let Some(sender) = self.reply_sender.read().as_ref() {
-                let reply = ReplyMessage::success_with_data(&msg.tid, &msg.bid, result);
-                if let Ok(reply_json) = serde_json::to_string(&reply) {
-                    let reply_topic = self.get_reply_topic(topic);
-                    sender(&reply_topic, &reply_json);
+        if let Some(executor) = executor {
+            // Build reply callback that sends reply via MQTT
+            let reply_sender = self.reply_sender.read().clone();
+            let reply_topic = self.get_reply_topic(topic);
+            let tid = msg.tid.clone();
+            let bid = msg.bid.clone();
+
+            let reply_cb: ReplyCallback = Arc::new(move |result_code, data| {
+                if let Some(sender) = reply_sender.as_ref() {
+                    let reply = ReplyMessage {
+                        tid: tid.clone(),
+                        bid: bid.clone(),
+                        code: result_code,
+                        message: if result_code == 0 {
+                            "success".to_string()
+                        } else {
+                            "error".to_string()
+                        },
+                        data: Some(serde_json::Value::String(
+                            String::from_utf8_lossy(&data).to_string(),
+                        )),
+                    };
+                    if let Ok(reply_json) = serde_json::to_string(&reply) {
+                        sender(&reply_topic, &reply_json);
+                    }
                 }
-            }
+            });
+
+            executor(request, reply_cb);
         } else {
-            warn!("No callback registered for method: {}", method);
+            warn!("No executor registered for method: {}", method);
         }
     }
 
     /// Handle a ReplyMessage (response to our request)
-    fn handle_reply_message(&self, reply: &ReplyMessage) {
+    fn handle_reply_message(&self, topic: &str, reply: &ReplyMessage) {
         debug!(
             "Handling reply: tid={}, code={}",
             reply.tid, reply.code
         );
 
-        // Find and invoke callback, then remove it
-        if let Some(callback) = self.remove_reply_callback(&reply.tid) {
-            callback(reply.clone());
+        if let Some(handler) = self.remove_reply_handler(&reply.tid) {
+            let param_data = reply
+                .data
+                .as_ref()
+                .map(|v| self.value_to_bytes(v))
+                .unwrap_or_default();
+            let identifier = self.extract_service_identifier_from_topic(topic);
+
+            match handler {
+                ReplyHandler::Platform(cb) => {
+                    let resp = PlatformServiceResponse {
+                        channel: crate::enums::CommunicationChannel::default(),
+                        service_identifier: identifier,
+                        result: reply.code,
+                        param_data,
+                        service_timestamp_ms: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as i64,
+                    };
+                    cb(resp);
+                }
+                ReplyHandler::Device(cb) => {
+                    let resp = DeviceServiceResponse {
+                        channel: crate::enums::CommunicationChannel::default(),
+                        service_identifier: identifier,
+                        result: reply.code,
+                        param_data,
+                        service_timestamp_ms: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as i64,
+                    };
+                    cb(resp);
+                }
+            }
         } else {
-            debug!("No reply callback for tid: {}", reply.tid);
+            debug!("No reply handler for tid: {}", reply.tid);
         }
+    }
+
+    /// Convert serde_json::Value to bytes
+    fn value_to_bytes(&self, value: &Value) -> Vec<u8> {
+        serde_json::to_vec(value).unwrap_or_default()
     }
 
     /// Extract method name from topic
@@ -149,6 +245,30 @@ impl MessageAdapter {
         }
     }
 
+    /// Extract service identifier from method string
+    fn extract_service_identifier(&self, method: &str) -> String {
+        // method format: "service.{identity}.post" or "platform.service.{identity}.post"
+        let parts: Vec<&str> = method.split('.').collect();
+        if parts.len() >= 3 && parts[0] == "platform" {
+            parts[2].to_string()
+        } else if parts.len() >= 2 {
+            parts[1].to_string()
+        } else {
+            method.to_string()
+        }
+    }
+
+    /// Extract service identifier from topic
+    fn extract_service_identifier_from_topic(&self, topic: &str) -> String {
+        // Topic: sys/{pk}/{did}/platform/service/{identity}/post_reply
+        let parts: Vec<&str> = topic.split('/').collect();
+        if parts.len() >= 6 {
+            parts[5].to_string()
+        } else {
+            String::new()
+        }
+    }
+
     /// Get reply topic from request topic
     fn get_reply_topic(&self, topic: &str) -> String {
         if topic.ends_with("/post") {
@@ -160,8 +280,9 @@ impl MessageAdapter {
 
     /// Release all resources
     pub fn release(&self) {
-        self.service_callbacks.write().clear();
-        self.reply_callbacks.write().clear();
+        self.service_executors.write().clear();
+        *self.unified_executor.write() = None;
+        self.reply_handlers.write().clear();
         *self.reply_sender.write() = None;
     }
 }
@@ -185,46 +306,60 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     #[test]
-    fn test_service_callback_registration() {
+    fn test_service_executor_registration() {
         let adapter = MessageAdapter::new();
         let called = Arc::new(AtomicBool::new(false));
         let called_clone = called.clone();
 
-        adapter.add_service_callback(
-            "test.service",
-            Arc::new(move |_| {
-                called_clone.store(true, Ordering::SeqCst);
-                json!({"result": "ok"})
-            }),
-        );
+        let executor: ServiceExecutor = Arc::new(move |req, reply_cb| {
+            called_clone.store(true, Ordering::SeqCst);
+            assert_eq!(req.service_identifier, "test");
+            reply_cb(0, b"ok".to_vec());
+        });
 
-        let msg = CommonMessage::new("test.service", json!({}));
-        let msg_json = serde_json::to_string(&msg).unwrap();
+        adapter.add_service_executor("service.test.post", executor);
 
-        adapter.receive("sys/pk/did/thing/service/test/post", &msg_json);
-
-        // Note: callback won't be triggered without proper method matching
-        // This test verifies registration works
-        assert!(adapter.service_callbacks.read().contains_key("test.service"));
+        assert!(adapter.service_executors.read().contains_key("service.test.post"));
     }
 
     #[test]
-    fn test_reply_callback_registration() {
+    fn test_unified_executor_fallback() {
         let adapter = MessageAdapter::new();
         let called = Arc::new(AtomicBool::new(false));
         let called_clone = called.clone();
 
-        adapter.add_reply_callback(
+        let executor: ServiceExecutor = Arc::new(move |_req, _reply_cb| {
+            called_clone.store(true, Ordering::SeqCst);
+        });
+
+        adapter.set_unified_executor(executor);
+
+        let msg = CommonMessage::new("service.unknown.post", json!({}));
+        let msg_json = serde_json::to_string(&msg).unwrap();
+
+        adapter.receive("sys/pk/did/thing/service/unknown/post", &msg_json);
+
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_reply_handler_platform() {
+        let adapter = MessageAdapter::new();
+        let called = Arc::new(AtomicBool::new(false));
+        let called_clone = called.clone();
+
+        adapter.add_reply_handler(
             "test-tid",
-            Arc::new(move |_reply| {
+            ReplyHandler::Platform(Arc::new(move |resp| {
                 called_clone.store(true, Ordering::SeqCst);
-            }),
+                assert_eq!(resp.result, 0);
+            })),
         );
 
         let reply = ReplyMessage::success("test-tid", "test-bid");
         let reply_json = serde_json::to_string(&reply).unwrap();
 
-        adapter.receive("sys/pk/did/thing/event/test/info_reply", &reply_json);
+        adapter.receive("sys/pk/did/platform/service/svc1/post_reply", &reply_json);
 
         assert!(called.load(Ordering::SeqCst));
     }

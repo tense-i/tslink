@@ -2,4 +2,4 @@
 
 mod message_adapter;
 
-pub use message_adapter::MessageAdapter;
+pub use message_adapter::{MessageAdapter, ReplyHandler};

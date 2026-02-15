@@ -49,16 +49,13 @@ impl MultiChannel {
     /// Set the message receive callback for IPC channel
     /// Note: MQTT channel callback is set at construction time
     #[cfg(feature = "ipc")]
-    pub fn set_ipc_callback(&self, callback: Arc<dyn MessageReceiveCallback>) {
+    pub async fn set_ipc_callback(&self, callback: Arc<dyn MessageReceiveCallback>) {
         if let Some(ipc) = &self.ipc_channel {
-            ipc.set_callback(callback.clone());
+            ipc.set_callback(callback.clone()).await;
         }
         
         // Store for future use
-        let cb = self.callback.clone();
-        tokio::spawn(async move {
-            *cb.write().await = Some(callback);
-        });
+        *self.callback.write().await = Some(callback);
     }
 
     /// Get the default communication channel

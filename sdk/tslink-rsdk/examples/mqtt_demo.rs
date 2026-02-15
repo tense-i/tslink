@@ -153,42 +153,52 @@ async fn test_event_reporting(client: &Arc<DefaultTslinkClient>) -> Result<()> {
     Ok(())
 }
 
-/// Test service callback registration
+/// Test service callback registration (using new ServiceExecutor API)
 fn test_service_callback(client: &Arc<DefaultTslinkClient>) {
-    // Register a service handler for "reboot" command
-    let reboot_handler: ServiceCallback = Arc::new(move |params| {
-        info!("Received reboot service call with params: {:?}", params);
-        
-        // Simulate reboot processing - return response
-        json!({
+    // Register a specific executor for "reboot" command
+    let reboot_executor: ServiceExecutor = Arc::new(move |req, reply_cb| {
+        info!("Received reboot service call: {:?}", req.service_identifier);
+        info!("    param_data: {:?}", String::from_utf8_lossy(&req.param_data));
+
+        // Reply with success
+        let response = json!({
             "status": "accepted",
             "message": "Reboot scheduled",
             "delay_seconds": 5
-        })
+        });
+        reply_cb(0, serde_json::to_vec(&response).unwrap_or_default());
     });
 
-    info!("Registering service handler for 'reboot'");
-    client.set_service_handle("reboot", reboot_handler);
-    info!("✓ Service handler registered");
+    info!("Registering service executor for 'reboot'");
+    client.set_service_specific_executor(
+        "reboot",
+        reboot_executor,
+        CommunicationChannel::All,
+        "test_product",
+        "test_device_001",
+    );
+    info!("Service executor registered");
 
-    // Register a service handler for "set_config"
-    let config_handler: ServiceCallback = Arc::new(move |params| {
-        info!("Config update received: {:?}", params);
-        
-        json!({
-            "status": "success",
-            "applied": true
-        })
+    // Register a specific executor for "set_config"
+    let config_executor: ServiceExecutor = Arc::new(move |req, reply_cb| {
+        info!("Config update received: {:?}", String::from_utf8_lossy(&req.param_data));
+        let response = json!({"status": "success", "applied": true});
+        reply_cb(0, serde_json::to_vec(&response).unwrap_or_default());
     });
 
-    info!("Registering service handler for 'set_config'");
-    client.set_service_handle("set_config", config_handler);
-    info!("✓ Service handler registered");
+    info!("Registering service executor for 'set_config'");
+    client.set_service_specific_executor(
+        "set_config",
+        config_executor,
+        CommunicationChannel::All,
+        "test_product",
+        "test_device_001",
+    );
+    info!("Service executor registered");
 }
 
-/// Test cloud service invocation
+/// Test cloud service invocation (using new PlatformServiceRequest API)
 async fn test_cloud_service(client: &Arc<DefaultTslinkClient>) -> Result<()> {
-    // Invoke a cloud service with reply callback
     let service_params = json!({
         "target": "cloud_function_1",
         "data": {
@@ -200,44 +210,35 @@ async fn test_cloud_service(client: &Arc<DefaultTslinkClient>) -> Result<()> {
         }
     });
 
-    // Invoke with reply callback
-    let reply_callback: ServiceReplyCallback = Arc::new(move |reply| {
-        info!("Received service reply: {:?}", reply);
+    // Invoke platform service asynchronously with callback
+    let callback: PlatformResponseCallback = Arc::new(move |resp| {
+        info!("Received platform service response: result={}, data={:?}",
+            resp.result, String::from_utf8_lossy(&resp.param_data));
     });
+
+    let request = PlatformServiceRequest::new(
+        "data_sync",
+        serde_json::to_vec(&service_params).unwrap_or_default(),
+    );
 
     info!("Invoking platform service 'data_sync': {:?}", service_params);
-    client.platform_service_invoke("data_sync", service_params, reply_callback).await?;
-    info!("✓ Platform service invoked");
+    client.platform_service_invoke_async(request, callback).await?;
+    info!("Platform service invoked (async)");
 
     // Invoke another service
-    let config_callback: ServiceReplyCallback = Arc::new(move |reply| {
-        info!("Received config reply: {:?}", reply);
+    let config_callback: PlatformResponseCallback = Arc::new(move |resp| {
+        info!("Received config reply: result={}, data={:?}",
+            resp.result, String::from_utf8_lossy(&resp.param_data));
     });
+
+    let config_request = PlatformServiceRequest::new(
+        "get_config",
+        serde_json::to_vec(&json!({"key": "device_settings"})).unwrap_or_default(),
+    );
 
     info!("Invoking platform service 'get_config'");
-    client.platform_service_invoke(
-        "get_config",
-        json!({"key": "device_settings"}),
-        config_callback,
-    ).await?;
-    info!("✓ Platform service invoked");
+    client.platform_service_invoke_async(config_request, config_callback).await?;
+    info!("Platform service invoked (async)");
 
     Ok(())
 }
-
-fn test_service_registry(client: &Arc<DefaultTslinkClient>) -> Result<()> {
-    let get_device_info: ServiceCallback = Arc::new(|_params| {
-        json!({"status": "success", "device": "test_device_001"})
-    });
-    
-    let take_photo: ServiceCallback = Arc::new(|_params| {
-        json!({"status": "success", "photo_id": "img_001"})
-    });
-    
-    client.set_service_handle("getDeviceInfo", get_device_info);
-    client.set_service_handle("takephoto", take_photo);
-    Ok(())
-}
-
-// Note: thing_service_invoke is not implemented yet
-// Use platform_service_invoke for cloud service invocation

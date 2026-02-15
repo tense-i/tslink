@@ -1,5 +1,6 @@
 //! Builder for TslinkClient
 
+use crate::enums::QoS;
 use crate::error::{Error, Result};
 
 use super::DefaultTslinkClient;
@@ -13,12 +14,18 @@ pub struct TslinkClientBuilder {
     device_secret: Option<String>,
     username: Option<String>,
     password: Option<String>,
+    publish_qos: QoS,
+    subscribe_qos: QoS,
 }
 
 impl TslinkClientBuilder {
     /// Create a new builder
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            publish_qos: QoS::AtMostOnce,
+            subscribe_qos: QoS::AtMostOnce,
+            ..Default::default()
+        }
     }
 
     /// Set the MQTT endpoint
@@ -60,6 +67,18 @@ impl TslinkClientBuilder {
         self
     }
 
+    /// Set the QoS level for publishing messages
+    pub fn publish_qos(mut self, qos: QoS) -> Self {
+        self.publish_qos = qos;
+        self
+    }
+
+    /// Set the QoS level for subscribing to topics
+    pub fn subscribe_qos(mut self, qos: QoS) -> Self {
+        self.subscribe_qos = qos;
+        self
+    }
+
     /// Build the TslinkClient
     ///
     /// # Errors
@@ -91,6 +110,8 @@ impl TslinkClientBuilder {
             device_id,
             username,
             password,
+            self.publish_qos,
+            self.subscribe_qos,
         ))
     }
 }

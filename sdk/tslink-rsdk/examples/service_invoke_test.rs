@@ -83,12 +83,12 @@ async fn run_device() -> Result<()> {
     }
 }
 
-/// 注册设备服务
+/// 注册设备服务 (使用新 ServiceExecutor API)
 fn register_services(client: &Arc<DefaultTslinkClient>) {
     // 服务1: getDeviceInfo - 获取设备信息
-    let get_device_info: ServiceCallback = Arc::new(|params| {
+    let get_device_info: ServiceExecutor = Arc::new(|req, reply_cb| {
         info!(">>> 收到 getDeviceInfo 服务调用");
-        info!("    参数: {:?}", params);
+        info!("    param_data: {:?}", String::from_utf8_lossy(&req.param_data));
 
         let response = json!({
             "code": 200,
@@ -102,25 +102,36 @@ fn register_services(client: &Arc<DefaultTslinkClient>) {
         });
 
         info!("<<< 返回响应: {:?}", response);
-        response
+        reply_cb(0, serde_json::to_vec(&response).unwrap_or_default());
     });
-    client.set_service_handle("getDeviceInfo", get_device_info);
+    client.set_service_specific_executor(
+        "getDeviceInfo", get_device_info,
+        CommunicationChannel::All, PRODUCT_KEY, DEVICE_ID,
+    );
     info!("✓ 已注册服务: getDeviceInfo");
 
     // 服务2: takePhoto - 拍照
-    let take_photo: ServiceCallback = Arc::new(|params| {
+    let take_photo: ServiceExecutor = Arc::new(|req, reply_cb| {
         info!(">>> 收到 takePhoto 服务调用");
-        info!("    参数: {:?}", params);
+        let params_str = String::from_utf8_lossy(&req.param_data);
+        info!("    param_data: {:?}", params_str);
 
+        let params: serde_json::Value = serde_json::from_str(&params_str)
+            .unwrap_or(json!({}));
         let resolution = params
             .get("resolution")
             .and_then(|v| v.as_str())
             .unwrap_or("1080p");
 
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
         let response = json!({
             "code": 200,
             "data": {
-                "photoId": format!("photo_{}", chrono::Utc::now().timestamp()),
+                "photoId": format!("photo_{}", ts),
                 "resolution": resolution,
                 "size": 1024000,
                 "url": "https://example.com/photos/latest.jpg"
@@ -128,16 +139,22 @@ fn register_services(client: &Arc<DefaultTslinkClient>) {
         });
 
         info!("<<< 返回响应: {:?}", response);
-        response
+        reply_cb(0, serde_json::to_vec(&response).unwrap_or_default());
     });
-    client.set_service_handle("takePhoto", take_photo);
+    client.set_service_specific_executor(
+        "takePhoto", take_photo,
+        CommunicationChannel::All, PRODUCT_KEY, DEVICE_ID,
+    );
     info!("✓ 已注册服务: takePhoto");
 
     // 服务3: reboot - 重启设备
-    let reboot: ServiceCallback = Arc::new(|params| {
+    let reboot: ServiceExecutor = Arc::new(|req, reply_cb| {
         info!(">>> 收到 reboot 服务调用");
-        info!("    参数: {:?}", params);
+        let params_str = String::from_utf8_lossy(&req.param_data);
+        info!("    param_data: {:?}", params_str);
 
+        let params: serde_json::Value = serde_json::from_str(&params_str)
+            .unwrap_or(json!({}));
         let delay = params
             .get("delay")
             .and_then(|v| v.as_i64())
@@ -145,26 +162,34 @@ fn register_services(client: &Arc<DefaultTslinkClient>) {
 
         info!("    设备将在 {} 秒后重启...", delay);
 
-        json!({
+        let response = json!({
             "code": 200,
             "message": format!("Reboot scheduled in {} seconds", delay)
-        })
+        });
+        reply_cb(0, serde_json::to_vec(&response).unwrap_or_default());
     });
-    client.set_service_handle("reboot", reboot);
+    client.set_service_specific_executor(
+        "reboot", reboot,
+        CommunicationChannel::All, PRODUCT_KEY, DEVICE_ID,
+    );
     info!("✓ 已注册服务: reboot");
 
     // 服务4: setConfig - 设置配置
-    let set_config: ServiceCallback = Arc::new(|params| {
+    let set_config: ServiceExecutor = Arc::new(|req, reply_cb| {
         info!(">>> 收到 setConfig 服务调用");
-        info!("    参数: {:?}", params);
+        info!("    param_data: {:?}", String::from_utf8_lossy(&req.param_data));
 
-        json!({
+        let response = json!({
             "code": 200,
             "message": "Config updated successfully",
             "applied": true
-        })
+        });
+        reply_cb(0, serde_json::to_vec(&response).unwrap_or_default());
     });
-    client.set_service_handle("setConfig", set_config);
+    client.set_service_specific_executor(
+        "setConfig", set_config,
+        CommunicationChannel::All, PRODUCT_KEY, DEVICE_ID,
+    );
     info!("✓ 已注册服务: setConfig");
 }
 

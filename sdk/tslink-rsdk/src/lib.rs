@@ -51,12 +51,14 @@ pub mod prelude {
     pub use crate::channel::{MqttChannel, MqttConfig};
     #[cfg(feature = "ipc")]
     pub use crate::channel::{IpcChannel, IpcConfig, IpcPayload};
-    pub use crate::client::{
-        DefaultTslinkClient, ServiceCallback, ServiceReplyCallback, TslinkClient, TslinkClientBuilder,
-    };
+    pub use crate::client::{DefaultTslinkClient, TslinkClient, TslinkClientBuilder};
     pub use crate::discovery::{DeviceDiscovery, DeviceDiscoveryConfig, DeviceInfo};
     pub use crate::enums::{CommunicationChannel, EventType, QoS};
     pub use crate::error::{Error, Result};
-    pub use crate::message::{CommonMessage, ReplyMessage};
+    pub use crate::message::{
+        CommonMessage, DeviceServiceRequest, DeviceServiceResponse, PlatformResponseCallback,
+        PlatformServiceRequest, PlatformServiceResponse, ReplyCallback, ReplyMessage,
+        ServiceExecutor, ServiceResponseCallback,
+    };
     pub use serde_json::json;
 }
